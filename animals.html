@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Zoo-Runner</title>
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3/dist/phaser.js"></script>
+  <style> body { margin: 0; background: #000; overflow: hidden; font-family: 'Arial', sans-serif; } </style>
+</head>
+<body>
+<script>
+let player;
+let fundoDia, fundoTarde, fundoNoite;
+let somPulo, somPuloEspecial, somFundo, somSelect, somOk, somInicio, somVitoria, somMenuFnf;
+let jogoRodando = false, personagemEscolhido = "raposa", distancia = 0;
+let textoDistancia, venceu = false, velocidadeJogo = 5, menuAberto = false;
+let containerMenu, btnAbrirMenu;
+
+const LARGURA = 1692;
+const ALTURA = 941;
+
+const config = {
+  type: Phaser.CANVAS,
+  width: LARGURA,
+  height: ALTURA,
+  pixelArt: true,
+  scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
+  physics: { default: "arcade", arcade: { gravity: { y: 2200 } } },
+  scene: { preload, create, update }
+};
+
+const game = new Phaser.Game(config);
+
+function preload() {
+  this.load.image("start_bg", "start.png");
+  this.load.image("placa", "placa.png");
+  this.load.image("jogar", "jogar.png");
+  this.load.image("selecao_personagem", "selecao_personagem.png");
+  this.load.image("dia", "corrida.png");
+  this.load.image("tarde", "corrida_3.png");
+  this.load.image("noite", "corrida_5.png");
+
+  const configSprite = { frameWidth: 75, frameHeight: 99 };
+  this.load.spritesheet("raposa", "raposa.png", configSprite);
+  this.load.spritesheet("unicornio", "unicornio.png", configSprite);
+  this.load.spritesheet("leopardo", "leopardo.png", configSprite);
+  this.load.spritesheet("foca", "foca.png", configSprite);
+
+  this.load.image("raposa_select", "raposa_select.png");
+  this.load.image("foca_select", "foca_select.png");
+  this.load.image("leopardo_select", "leopardo_select.png");
+  this.load.image("unicornio_select", "unicornio_select.png");
+
+  this.load.audio("musica_inicio", "song.mp3");
+  this.load.audio("fnf_select", "fnf_menu_select.mp3");
+  this.load.audio("pulo", "jump.mp3");
+  this.load.audio("pulo_especial", "jump_special.mp3");
+  this.load.audio("musica_jogo", "fundo.mp3");
+  this.load.audio("select_personagem", "select.mp3");
+  this.load.audio("ok", "ok.mp3");
+  this.load.audio("sukuna_happy", "sukuna_happy.mp3");
+}
+
+function create() {
+  const w = LARGURA; const h = ALTURA; const cena = this;
+
+  somInicio = this.sound.add("musica_inicio", { loop: true, volume: 0.1 });
+  somMenuFnf = this.sound.add("fnf_select");
+  somPulo = this.sound.add("pulo");
+  somPuloEspecial = this.sound.add("pulo_especial");
+  somFundo = this.sound.add("musica_jogo", { loop: true, volume: 0.5 });
+  somSelect = this.sound.add("select_personagem");
+  somOk = this.sound.add("ok");
+  somVitoria = this.sound.add("sukuna_happy");
+
+  fundoDia = this.add.tileSprite(0, 0, w, h, "dia").setOrigin(0, 0).setVisible(false);
+  fundoTarde = this.add.tileSprite(0, 0, w, h, "tarde").setOrigin(0, 0).setVisible(false).setAlpha(0);
+  fundoNoite = this.add.tileSprite(0, 0, w, h, "noite").setOrigin(0, 0).setVisible(false).setAlpha(0);
+
+  let ground = this.add.rectangle(w/2, h - 150, w, 40, 0x000000, 0);
+  this.physics.add.existing(ground, true);
+
+  player = this.physics.add.sprite(300, h - 300, "raposa").setVisible(false).setDepth(20);
+  player.setDisplaySize(190, 190).setCollideWorldBounds(true);
+  this.physics.add.collider(player, ground);
+
+  ["raposa", "unicornio", "leopardo", "foca"].forEach(key => {
+      this.anims.create({ key: "run_" + key, frames: this.anims.generateFrameNumbers(key, { start: 0, end: 4 }), frameRate: (key === "leopardo") ? 16 : 10, repeat: -1 });
+      this.anims.create({ key: "jump_" + key, frames: this.anims.generateFrameNumbers(key, { start: 5, end: 10 }), frameRate: 10, repeat: 0 });
+  });
+
+  textoDistancia = this.add.text(50, 50, '0m', { fontSize: '48px', fill: '#000', stroke: '#fff', strokeThickness: 4, style: 'bold' }).setScrollFactor(0).setDepth(30).setVisible(false);
+
+  // --- FUNÇÃO PARA RESETAR SÓ A CORRIDA ---
+  const resetarCorrida = () => {
+      distancia = 0;
+      venceu = false;
+      jogoRodando = true;
+      menuAberto = false;
+      player.setX(300).setY(h-300).setVelocity(0, 0).setVisible(true);
+      fundoDia.setAlpha(1).setVisible(true);
+      fundoTarde.setAlpha(0).setVisible(false);
+      fundoNoite.setAlpha(0).setVisible(false);
+      textoDistancia.setText('0m');
+      somFundo.play();
+      cena.physics.resume();
+  };
+
+  // --- MENU DE PAUSA ---
+  btnAbrirMenu = this.add.text(w - 100, 50, '⚙️', { fontSize: '60px' }).setInteractive({ useHandCursor: true }).setDepth(1000).setVisible(false);
+  containerMenu = this.add.container(w/2, h/2).setDepth(2000).setVisible(false);
+  let fundoM = this.add.graphics().fillStyle(0xffb7c5, 0.95).fillRoundedRect(-250, -300, 500, 600, 30).lineStyle(6, 0x000000, 1).strokeRoundedRect(-250, -300, 500, 600, 30);
+
+  const criarBtnM = (y, txt, ac) => {
+      return this.add.text(0, y, txt, { fontSize: '38px', fill: '#000', style: 'bold', backgroundColor: '#fff', padding: { x: 30, y: 12 } })
+      .setOrigin(0.5).setInteractive({ useHandCursor: true }).on('pointerdown', () => { somSelect.play(); ac(); });
+  };
+
+  containerMenu.add([
+    fundoM,
+    criarBtnM(-80, 'CONTINUAR', () => {
+        cena.tweens.add({ targets: containerMenu, alpha: 0, duration: 200, onComplete: () => { menuAberto = false; jogoRodando = true; cena.physics.resume(); somFundo.resume(); containerMenu.setVisible(false).setAlpha(1); }});
+    }),
+    criarBtnM(40, 'REINICIAR', () => {
+        cena.cameras.main.fadeOut(300, 0, 0, 0);
+        cena.cameras.main.once('camerafadeoutcomplete', () => {
+            containerMenu.setVisible(false);
+            resetarCorrida();
+            cena.cameras.main.fadeIn(300, 0, 0, 0);
+        });
+    }),
+    criarBtnM(160, 'INÍCIO', () => {
+        cena.cameras.main.fadeOut(500, 0, 0, 0);
+        cena.cameras.main.once('camerafadeoutcomplete', () => { location.reload(); });
+    })
+  ]);
+
+  btnAbrirMenu.on('pointerdown', () => {
+      menuAberto = true; jogoRodando = false; cena.physics.pause(); somFundo.pause(); containerMenu.setAlpha(0).setVisible(true);
+      cena.tweens.add({ targets: containerMenu, alpha: 1, duration: 200 });
+  });
+
+  // --- TELA SELEÇÃO ---
+  let telaSelecao = this.add.container(0, 0).setVisible(false).setDepth(10);
+  let bgSel = this.add.image(w/2, h/2, "selecao_personagem").setDisplaySize(w, h);
+  telaSelecao.add(bgSel);
+
+  const boxes = {
+    foca: { x: 1030, y: 180, w: 284, h: 257, img: "foca_select" },
+    raposa: { x: 320, y: 180, w: 282, h: 248, img: "raposa_select" },
+    unicornio: { x: 320, y: 530, w: 295, h: 232, img: "unicornio_select" },
+    leopardo: { x: 1030, y: 530, w: 295, h: 231, img: "leopardo_select" }
+  };
+
+  let iconesBotoes = {};
+  let tweenPulsa;
+
+  Object.keys(boxes).forEach(k => {
+      let b = boxes[k];
+      let icon = this.add.image(b.x + b.w/2, b.y + b.h/2, b.img).setDisplaySize(b.w, b.h).setInteractive({ useHandCursor: true });
+      iconesBotoes[k] = icon;
+      icon.on('pointerdown', () => {
+          personagemEscolhido = k;
+          somSelect.play();
+          if (tweenPulsa) tweenPulsa.stop();
+          Object.values(iconesBotoes).forEach(img => img.setScale(1));
+          tweenPulsa = cena.tweens.add({ targets: icon, scale: 1.15, duration: 400, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+      });
+      telaSelecao.add(icon);
+  });
+
+  let btnJogar = this.add.image(w/2, 880, "jogar").setInteractive({ useHandCursor: true });
+  this.tweens.add({ targets: btnJogar, scale: 1.05, duration: 600, yoyo: true, repeat: -1 });
+
+  btnJogar.on('pointerdown', () => {
+      somOk.play(); somInicio.stop();
+      cena.cameras.main.fadeOut(500, 0, 0, 0);
+      cena.cameras.main.once('camerafadeoutcomplete', () => {
+          telaSelecao.setVisible(false);
+          iniciarPartida();
+          cena.cameras.main.fadeIn(500, 0, 0, 0);
+      });
+  });
+  telaSelecao.add(btnJogar);
+
+  // --- TELA START ---
+  let telaStart = this.add.container(0, 0).setDepth(100);
+  let bgStart = this.add.image(w/2, h/2, "start_bg").setDisplaySize(w, h);
+  let btnPlaca = this.add.image(w/2, h/2 + 200, "placa").setInteractive({ useHandCursor: true });
+  this.tweens.add({ targets: btnPlaca, scale: 1.1, duration: 800, yoyo: true, repeat: -1 });
+
+  btnPlaca.on('pointerdown', () => {
+      somMenuFnf.play();
+      cena.cameras.main.fadeOut(300, 0, 0, 0);
+      cena.cameras.main.once('camerafadeoutcomplete', () => {
+          telaStart.setVisible(false); telaSelecao.setVisible(true); somInicio.play();
+          cena.cameras.main.fadeIn(300, 0, 0, 0);
+      });
+  });
+  telaStart.add([bgStart, btnPlaca]);
+
+  const iniciarPartida = () => {
+      jogoRodando = true; venceu = false; distancia = 0;
+      fundoDia.setVisible(true).setAlpha(1);
+      player.setVisible(true).setTexture(personagemEscolhido).setX(300).setY(h-300);
+      velocidadeJogo = (personagemEscolhido === "leopardo") ? 13 : 5;
+      player.play("run_" + personagemEscolhido, true);
+      textoDistancia.setVisible(true).setText('0m');
+      btnAbrirMenu.setVisible(true);
+      somFundo.play();
+  };
+
+  this.input.on('pointerdown', () => {
+    if (jogoRodando && !venceu && !menuAberto && (player.body.touching.down || player.body.blocked.down)) {
+        player.setVelocityY(-1050);
+        player.play("jump_" + personagemEscolhido, true);
+        personagemEscolhido === "leopardo" ? somPuloEspecial.play() : somPulo.play();
+    }
+  });
+}
+
+function update() {
+  if (!jogoRodando || venceu || menuAberto) return;
+
+  fundoDia.tilePositionX += velocidadeJogo;
+  fundoTarde.tilePositionX += velocidadeJogo;
+  fundoNoite.tilePositionX += velocidadeJogo;
+
+  distancia += (velocidadeJogo / 33);
+  let m = Math.floor(distancia);
+  textoDistancia.setText(m + 'm');
+
+  if (m >= 80 && m <= 120) { fundoTarde.setVisible(true); fundoTarde.setAlpha((m - 80) / 40); }
+  if (m >= 180 && m <= 220) { fundoNoite.setVisible(true); fundoNoite.setAlpha((m - 180) / 40); }
+
+  if (personagemEscolhido === "unicornio") {
+      let cores = [0xff0000, 0xffa500, 0xffff00, 0x00ff00, 0x0000ff, 0x8b00ff];
+      cores.forEach((cor, i) => {
+          let rastro = this.add.rectangle(player.x - 10, (player.y - 30) + (i * 12), 40, 12, cor).setDepth(5);
+          this.tweens.add({ targets: rastro, x: rastro.x - 400, alpha: 0, duration: 500, onComplete: () => rastro.destroy() });
+      });
+  }
+
+  if (player.body.touching.down && player.anims.currentAnim && player.anims.currentAnim.key.includes("jump")) {
+      player.play("run_" + personagemEscolhido, true);
+  }
+
+  if (distancia >= 300 && !venceu) {
+      venceu = true; somFundo.stop();
+      if (personagemEscolhido === "leopardo") somVitoria.play();
+      player.setVelocityX(450);
+  }
+}
+</script>
+</body>
+</html>
